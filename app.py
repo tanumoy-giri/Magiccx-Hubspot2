@@ -10,6 +10,41 @@ api_key = os.getenv('HUBSPOT_API_KEY')
 app = Flask(__name__)
 CORS(app)
 
+#function get mmeting id from meeting url
+def get_meeting_id(location):
+    endpoint = 'https://api.hubapi.com/crm/v3/objects/meetings/search'
+    body = {
+        "filterGroups": [
+            {
+                "filters": [
+                    {
+                        "value": location,
+                        "propertyName": "hs_meeting_location",
+                        "operator": "EQ"
+                    }
+                ]
+            }
+        ],
+    }
+    headers = {
+        'Authorization': f'Bearer {api_key}',
+        'Content-Type': 'application/json'
+    }
+
+    response = requests.post(endpoint, json=body, headers=headers)
+
+    if response.status_code == 200:
+        data = response.json()
+        if data.get('results'):
+            meeting_id = data['results'][0]['id']
+            return meeting_id
+        else:
+            return None
+    else:
+        print(f"Failed to fetch meeting ID: {response.status_code}")
+        return None
+
+
 # Function to fetch ticket ID associated with a meeting ID
 def get_ticket_id(meeting_id):
     endpoint = f'https://api.hubapi.com/crm/v3/objects/meetings/{meeting_id}?associations=ticket'
@@ -43,24 +78,29 @@ def update_ticket_properties(ticket_id, summarize, record_link, meeting_id, full
         return {"error": f"Failed to update ticket properties: {response.text}"}
 
 # API route to handle ticket update request
+# API route to handle ticket update request
 @app.route('/update-ticket', methods=['POST'])
 def update_ticket_route():
     data = request.json
-    meeting_id = data.get('meetingId')
+    print(data)  # Print received data for debugging
+    meeting_url = data.get('meetingURL')  # Corrected key access
     summarize = data.get('summarize')
     record_link = data.get('recordLink')
     full_conversation_link = data.get('fullConversationLink')
     sentiment_analysis = data.get('sentimentAnalysis')
     
-    if not meeting_id:
-        return jsonify({"error": "Meeting ID is required."}), 400
-    
-    ticket_id = get_ticket_id(meeting_id)
-    if ticket_id:
-        result = update_ticket_properties(ticket_id, summarize, record_link, meeting_id, full_conversation_link, sentiment_analysis)
-        return jsonify(result), 200
+    if not meeting_url:
+        return jsonify({"error": "Meeting URL is required."}), 400  # Corrected error message
+    meeting_id = get_meeting_id(meeting_url)
+    if meeting_id:
+        ticket_id = get_ticket_id(meeting_id)
+        if ticket_id:
+            result = update_ticket_properties(ticket_id, summarize, record_link, meeting_id, full_conversation_link, sentiment_analysis)
+            return jsonify(result), 200
+        else:
+            return jsonify({"error": "Failed to update ticket properties: Ticket not found."}), 404
     else:
-        return jsonify({"error": "Failed to update ticket properties."}), 500
+        return jsonify({"error": "Failed to update ticket properties: Meeting not found."}), 404
 
 # Run the Flask app
 if __name__ == '__main__':
